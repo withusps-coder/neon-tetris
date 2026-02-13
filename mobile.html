@@ -10,7 +10,7 @@
     <style>
         :root {
             --bg-color: #050510;
-            --panel-bg: rgba(20, 20, 35, 0.9);
+            --panel-bg: rgba(20, 20, 35, 0.6);
             --accent: #00f0ff;
             --text-main: #ffffff;
             --font-game: 'Rajdhani', sans-serif;
@@ -18,6 +18,7 @@
 
         body {
             background-color: var(--bg-color);
+            background-image: radial-gradient(circle at 50% 50%, #1a1a2e 0%, #050510 100%);
             color: var(--text-main);
             font-family: var(--font-game);
             display: flex;
@@ -27,7 +28,6 @@
             margin: 0;
             overflow: hidden;
             touch-action: none;
-            /* Prevent scroll */
         }
 
         #game-layout {
@@ -45,11 +45,13 @@
         .header {
             display: flex;
             justify-content: space-between;
-            background: var(--panel-bg);
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(5px);
             padding: 10px 20px;
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             margin-bottom: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
 
         .stat-box {
@@ -61,12 +63,14 @@
             color: #8892b0;
             text-transform: uppercase;
             display: block;
+            letter-spacing: 0.1em;
         }
 
         .value {
-            font-size: 1.5rem;
+            font-size: 1.8rem;
             font-weight: 700;
             color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
 
         /* Game Area */
@@ -76,16 +80,15 @@
             justify-content: center;
             align-items: center;
             position: relative;
-            margin-bottom: 10px;
+            margin-bottom: 0px;
+            padding: 5px;
         }
 
         canvas {
             background-color: #0a0a12;
-            border-radius: 4px;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
             border: 2px solid #333;
-            max-height: 100%;
-            max-width: 100%;
         }
 
         /* Mobile Controls */
@@ -93,35 +96,40 @@
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
             grid-template-rows: 1fr 1fr;
-            gap: 8px;
-            height: 180px;
-            padding-bottom: 20px;
-            /* Safe area */
+            gap: 12px;
+            height: 220px;
+            padding-bottom: 30px;
+            padding-left: 10px;
+            padding-right: 10px;
         }
 
         .btn {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(4px);
+            border-radius: 16px;
             color: #fff;
-            font-size: 1.5rem;
+            font-size: 1.8rem;
             display: flex;
             justify-content: center;
             align-items: center;
             user-select: none;
             touch-action: manipulation;
-            transition: background 0.1s;
+            transition: all 0.1s;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
         }
 
         .btn:active {
-            background: rgba(0, 240, 255, 0.3);
+            background: rgba(0, 240, 255, 0.2);
             transform: scale(0.95);
+            border-color: rgba(0, 240, 255, 0.5);
         }
 
         .btn-rotate {
             grid-column: 2;
             grid-row: 1;
-            background: rgba(255, 215, 0, 0.2);
+            border-color: rgba(255, 215, 0, 0.3);
+            color: #ffd700;
         }
 
         .btn-left {
@@ -140,17 +148,22 @@
         }
 
         .btn-drop {
-            grid-column: 1 /span 1;
+            grid-column: 1;
             grid-row: 1;
-            background: rgba(255, 0, 0, 0.2);
+            background: rgba(255, 50, 50, 0.15);
+            border-color: rgba(255, 50, 50, 0.3);
             font-size: 1rem;
             font-weight: bold;
+            color: #ff6b6b;
+            flex-direction: column;
+            line-height: 1.2;
         }
 
         .btn-sound {
             grid-column: 3;
             grid-row: 1;
-            font-size: 1rem;
+            font-size: 1.5rem;
+            border-color: rgba(100, 255, 218, 0.3);
         }
     </style>
 </head>
@@ -170,15 +183,14 @@
         </div>
 
         <div class="canvas-container">
-            <!-- 10x20 grid, aspect ratio 1:2 -->
+            <!-- Grid will be scaled by JS -->
             <canvas id="tetris" width="300" height="600"></canvas>
         </div>
 
         <div class="controls-area">
-            <div class="btn btn-drop" id="btnDrop">HARD<br>DROP</div>
+            <div class="btn btn-drop" id="btnDrop"><span>HARD</span><span>DROP</span></div>
             <div class="btn btn-rotate" id="btnRotate">↻</div>
             <div class="btn btn-sound" id="btnSound">🔊</div>
-
             <div class="btn btn-left" id="btnLeft">←</div>
             <div class="btn btn-down" id="btnDown">↓</div>
             <div class="btn btn-right" id="btnRight">→</div>
@@ -189,43 +201,33 @@
         const canvas = document.getElementById('tetris');
         const context = canvas.getContext('2d');
 
-        // --- Scale Logic for Mobile ---
-        // We want the canvas to be as big as possible but maintain 1:2 aspect ratio
         function resizeCanvas() {
             const container = document.querySelector('.canvas-container');
             const availWidth = container.clientWidth;
             const availHeight = container.clientHeight;
 
-            // Target aspect ratio 10:20 = 0.5
-            let w = availHeight * 0.5;
+            // Target aspect 0.5
             let h = availHeight;
+            let w = h * 0.5;
 
             if (w > availWidth) {
                 w = availWidth;
                 h = w * 2;
             }
 
-            // Update display size
             canvas.style.width = w + 'px';
             canvas.style.height = h + 'px';
-
-            // Update internal resolution (sharpness)
-            // We'll keep internal logic at 300x600 for simplicity of calculations
-            // scale context accordingly if we changed internal resolution, 
-            // but here we just stick to logical size and scale style.
         }
 
         window.addEventListener('resize', resizeCanvas);
-        resizeCanvas(); // Init
+        resizeCanvas();
 
-        // --- Configuration ---
-        const BLOCK_SIZE = 30; // 300 / 10
+        const BLOCK_SIZE = 30; // internal res
         const COLS = 10;
         const ROWS = 20;
 
         context.scale(BLOCK_SIZE, BLOCK_SIZE);
 
-        // --- Sound Manager (Same as Desktop) ---
         const Sound = {
             ctx: null,
             isMuted: false,
@@ -262,25 +264,30 @@
                 return this.isMuted;
             },
             startBGM() {
-                // Simplified BGM just for interaction trigger
                 if (!this.ctx) this.init();
             }
         };
 
-        // --- Colors ---
+        // --- High Quality Aesthetics ---
         const COLORS = [
             null,
-            '#FF0D72', '#0DC2FF', '#0DFF72', '#F538FF', '#FF8E0D', '#FFE138', '#3877FF'
+            { base: '#FF0D72', glow: 'rgba(255, 13, 114, 0.6)' },
+            { base: '#0DC2FF', glow: 'rgba(13, 194, 255, 0.6)' },
+            { base: '#0DFF72', glow: 'rgba(13, 255, 114, 0.6)' },
+            { base: '#F538FF', glow: 'rgba(245, 56, 255, 0.6)' },
+            { base: '#FF8E0D', glow: 'rgba(255, 142, 13, 0.6)' },
+            { base: '#FFE138', glow: 'rgba(255, 225, 56, 0.6)' },
+            { base: '#3877FF', glow: 'rgba(56, 119, 255, 0.6)' },
         ];
 
         function createPiece(type) {
-            if (type === 'I') return [[0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0]];
-            if (type === 'L') return [[0, 2, 0], [0, 2, 0], [0, 2, 2]];
-            if (type === 'J') return [[0, 3, 0], [0, 3, 0], [3, 3, 0]];
-            if (type === 'O') return [[4, 4], [4, 4]];
-            if (type === 'Z') return [[5, 5, 0], [0, 5, 5], [0, 0, 0]];
-            if (type === 'S') return [[0, 6, 6], [6, 6, 0], [0, 0, 0]];
-            if (type === 'T') return [[0, 7, 0], [7, 7, 7], [0, 0, 0]];
+            if (type === 'T') return [[0, 1, 0], [1, 1, 1], [0, 0, 0]];
+            if (type === 'I') return [[0, 2, 0, 0], [0, 2, 0, 0], [0, 2, 0, 0], [0, 2, 0, 0]];
+            if (type === 'S') return [[0, 3, 3], [3, 3, 0], [0, 0, 0]];
+            if (type === 'J') return [[0, 4, 0], [0, 4, 0], [4, 4, 0]];
+            if (type === 'L') return [[0, 5, 0], [0, 5, 0], [0, 5, 5]];
+            if (type === 'O') return [[6, 6], [6, 6]];
+            if (type === 'Z') return [[7, 7, 0], [0, 7, 7], [0, 0, 0]];
         }
 
         function createMatrix(w, h) {
@@ -290,27 +297,45 @@
         }
 
         function drawBlock(ctx, x, y, colorIndex) {
+            if (!colorIndex) return;
             const color = COLORS[colorIndex];
-            ctx.fillStyle = color;
-            ctx.fillRect(x, y, 1, 1);
+
+            ctx.fillStyle = color.base;
+            ctx.fillRect(x + 0.1, y + 0.1, 0.8, 0.8);
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.fillRect(x + 0.1, y + 0.1, 0.8, 0.1);
+            ctx.fillRect(x + 0.1, y + 0.1, 0.1, 0.8);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(x + 0.1, y + 0.8, 0.8, 0.1);
+            ctx.fillRect(x + 0.8, y + 0.1, 0.1, 0.8);
 
             ctx.lineWidth = 0.05;
-            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
             ctx.strokeRect(x, y, 1, 1);
+        }
+
+        function drawGrid() {
+            context.lineWidth = 0.02;
+            context.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            context.beginPath();
+            for (let x = 0; x <= COLS; x++) { context.moveTo(x, 0); context.lineTo(x, ROWS); }
+            for (let y = 0; y <= ROWS; y++) { context.moveTo(0, y); context.lineTo(COLS, y); }
+            context.stroke();
         }
 
         function draw() {
             context.fillStyle = '#0a0a12';
             context.fillRect(0, 0, COLS, ROWS);
+            drawGrid();
 
-            // Draw Arena
             arena.forEach((row, y) => {
                 row.forEach((value, x) => {
                     if (value !== 0) drawBlock(context, x, y, value);
                 });
             });
 
-            // Draw Player
             player.matrix.forEach((row, y) => {
                 row.forEach((value, x) => {
                     if (value !== 0) drawBlock(context, x + player.pos.x, y + player.pos.y, value);
@@ -349,10 +374,10 @@
             if (collide(arena, player)) {
                 player.pos.y--;
                 merge(arena, player);
+                Sound.drop();
                 playerReset();
                 arenaSweep();
                 updateScore();
-                Sound.drop();
             }
             dropCounter = 0;
         }
@@ -434,7 +459,6 @@
         const arena = createMatrix(10, 20);
         const player = { pos: { x: 0, y: 0 }, matrix: null, score: 0, level: 1, lines: 0 };
 
-        // --- Touch Controls Integration ---
         function initAudioOnTouch() {
             Sound.startBGM();
         }
@@ -442,14 +466,18 @@
         function attachButton(id, action) {
             const btn = document.getElementById(id);
             btn.addEventListener('touchstart', (e) => {
-                e.preventDefault(); // Prevent accidental selection/zoom
+                e.preventDefault();
                 initAudioOnTouch();
                 action();
-                // Optional: repeat on hold could be added here
+                btn.style.transform = "scale(0.95)";
+                btn.style.borderColor = "#00f0ff";
+                setTimeout(() => {
+                    btn.style.transform = "scale(1)";
+                    btn.style.borderColor = "rgba(255,255,255,0.15)";
+                }, 100);
             }, { passive: false });
 
-            // Mouse fallback
-            btn.addEventListener('mousedown', (e) => {
+            btn.addEventListener('mousedown', () => {
                 initAudioOnTouch();
                 action();
             });
@@ -463,30 +491,22 @@
             while (!collide(arena, player)) player.pos.y++;
             player.pos.y--;
             merge(arena, player);
+            Sound.drop();
             playerReset();
             arenaSweep();
             updateScore();
-            Sound.drop();
         });
 
         document.getElementById('btnSound').addEventListener('touchstart', (e) => {
             e.preventDefault();
-            Sound.startBGM(); // Ensure init
+            Sound.startBGM();
             const muted = Sound.toggleMute();
             e.target.innerText = muted ? '🔇' : '🔊';
         }, { passive: false });
 
-        document.getElementById('btnSound').addEventListener('click', (e) => {
-            Sound.startBGM();
-            const muted = Sound.toggleMute();
-            e.target.innerText = muted ? '🔇' : '🔊';
-        });
-
-        // Start
         playerReset();
         updateScore();
         update();
-
     </script>
 </body>
 

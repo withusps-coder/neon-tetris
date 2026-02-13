@@ -5,6 +5,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Neon Tetris</title>
+    <script>
+        // Redirect to mobile version if touch device is detected
+        if (('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth < 800)) {
+            // Only redirect if not already on mobile page (though this is index.html)
+            if (window.location.pathname.indexOf('mobile.html') === -1) {
+                // Determine path relative to current
+                var path = window.location.pathname;
+                var base = path.substring(0, path.lastIndexOf('/'));
+                window.location.href = base + '/mobile.html';
+            }
+        }
+    </script>
     <!-- Import a gaming font -->
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
     <style>

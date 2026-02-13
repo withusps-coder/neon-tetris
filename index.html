@@ -507,11 +507,10 @@
             }
         }
 
-        // Flash effect state
         // --- Sound Manager ---
         const Sound = {
             ctx: null,
-            bgmOsc: [],
+            bgmTimer: null,
             isPlaying: false,
             isMuted: false,
 
@@ -520,31 +519,57 @@
                 this.ctx = new AudioContext();
             },
 
-            playTone(freq, type, duration, vol = 0.1) {
+            // Accurate pulse wave for Gameboy sound
+            playPulse(freq, duration, type = 'square', vol = 0.1) {
                 if (!this.ctx || this.isMuted) return;
                 const osc = this.ctx.createOscillator();
                 const gain = this.ctx.createGain();
+
                 osc.type = type;
                 osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+
+                // Short envelope
                 gain.gain.setValueAtTime(vol, this.ctx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+
                 osc.connect(gain);
                 gain.connect(this.ctx.destination);
                 osc.start();
                 osc.stop(this.ctx.currentTime + duration);
             },
 
-            move() { this.playTone(400, 'triangle', 0.05, 0.05); },
-            rotate() { this.playTone(500, 'sine', 0.05, 0.05); },
-            drop() { this.playTone(200, 'square', 0.1, 0.05); },
+            move() { this.playPulse(440, 0.05, 'square', 0.05); }, // Crisp blip
+            rotate() { this.playPulse(660, 0.05, 'square', 0.05); }, // Higher blip
+            drop() { this.playPulse(200, 0.1, 'sawtooth', 0.1); }, // Thud
             clear() {
                 if (!this.ctx || this.isMuted) return;
-                [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
-                    setTimeout(() => this.playTone(f, 'square', 0.3, 0.1), i * 60);
-                });
+                // "Ding-Ding!" 
+                const now = this.ctx.currentTime;
+                // Tone 1
+                const osc1 = this.ctx.createOscillator();
+                const gain1 = this.ctx.createGain();
+                osc1.type = 'square';
+                osc1.frequency.setValueAtTime(1046, now); // C6
+                gain1.gain.setValueAtTime(0.1, now);
+                gain1.gain.linearRampToValueAtTime(0, now + 0.3);
+                osc1.connect(gain1);
+                gain1.connect(this.ctx.destination);
+                osc1.start();
+                osc1.stop(now + 0.3);
+
+                // Tone 2 (slightly later)
+                const osc2 = this.ctx.createOscillator();
+                const gain2 = this.ctx.createGain();
+                osc2.type = 'square';
+                osc2.frequency.setValueAtTime(1318, now + 0.1); // E6
+                gain2.gain.setValueAtTime(0.1, now + 0.1);
+                gain2.gain.linearRampToValueAtTime(0, now + 0.4);
+                osc2.connect(gain2);
+                gain2.connect(this.ctx.destination);
+                osc2.start(now + 0.1);
+                osc2.stop(now + 0.4);
             },
 
-            // BGM Logic
             toggleMute() {
                 this.isMuted = !this.isMuted;
                 if (this.isMuted) {
@@ -553,39 +578,70 @@
                 } else {
                     if (this.ctx) this.ctx.resume();
                     else this.init();
-                    // Simple infinite loop of theme using setInterval for robustness
-                    if (!this.bgmInterval) this.startBGM();
+                    if (!this.bgmTimer) this.startBGM();
                     return false;
                 }
             },
 
             startBGM() {
-                if (this.bgmInterval) return;
-                // Korobeiniki theme simplified
-                // Melody: E B C D C B A A C E D C B C D E C A A
-                const melody = [
-                    659, 493, 523, 587, 523, 493, 440, 440, 523, 659, 587, 523, 493, 523, 587, 659, 523, 440, 440,
-                    // Bridge
-                    587, 698, 880, 783, 698, 659, 523, 659, 587, 523, 493, 493, 523, 587, 659, 523, 440, 440
-                ];
-                // Durations: 1=q, 0.5=8th. Most are q or 8th. Simplified to constant 8th notes for arcade feel.
-                let noteIndex = 0;
+                if (this.bgmTimer) return;
+                if (!this.ctx) this.init();
 
-                // Play loop
+                // Korobeiniki (Type-A) - Original Key / Rhythm
+                // f=frequency, l=length (16th notes)
+                // Tempo ~150 BPM -> 16th note ~ 100ms
+                const sequence = [
+                    { f: 659, l: 4 }, { f: 493, l: 2 }, { f: 523, l: 2 }, { f: 587, l: 4 }, { f: 523, l: 2 }, { f: 493, l: 2 },
+                    { f: 440, l: 4 }, { f: 440, l: 2 }, { f: 523, l: 2 }, { f: 659, l: 4 }, { f: 587, l: 2 }, { f: 523, l: 2 },
+                    { f: 493, l: 6 }, { f: 523, l: 2 }, { f: 587, l: 4 }, { f: 659, l: 4 },
+                    { f: 523, l: 4 }, { f: 440, l: 4 }, { f: 440, l: 4 }, { f: 0, l: 4 }, // Pause
+
+                    // Bridge
+                    { f: 587, l: 4 }, { f: 698, l: 2 }, { f: 880, l: 4 }, { f: 783, l: 2 }, { f: 698, l: 2 },
+                    { f: 659, l: 6 }, { f: 523, l: 2 }, { f: 659, l: 4 }, { f: 587, l: 2 }, { f: 523, l: 2 },
+                    { f: 493, l: 4 }, { f: 493, l: 2 }, { f: 523, l: 2 }, { f: 587, l: 4 }, { f: 659, l: 4 },
+                    { f: 523, l: 4 }, { f: 440, l: 4 }, { f: 440, l: 4 }, { f: 0, l: 4 }
+                ];
+
+                let noteIdx = 0;
+                let stepTime = 0.085; // Slightly faster for excitement
+
                 const playNext = () => {
-                    if (this.isMuted || !this.ctx) return;
-                    // Some basic rhythmic variety
-                    const freq = melody[noteIndex % melody.length];
-                    // Skip 0s if any
-                    if (freq) {
-                        this.playTone(freq, 'square', 0.1, 0.03);
-                        this.playTone(freq / 2, 'sawtooth', 0.1, 0.03); // Bass
+                    if (!this.isPlaying && !this.bgmTimer) return;
+
+                    const note = sequence[noteIdx];
+                    if (note.f > 0) {
+                        this.playToneBGM(note.f, note.l * stepTime);
                     }
-                    noteIndex++;
+
+                    const delay = note.l * stepTime * 1000;
+                    this.bgmTimer = setTimeout(() => {
+                        noteIdx = (noteIdx + 1) % sequence.length;
+                        playNext();
+                    }, delay);
                 };
 
-                // Tempo ~150bpm -> 8th note is ~200ms
-                this.bgmInterval = setInterval(playNext, 200);
+                this.isPlaying = true;
+                playNext();
+            },
+
+            playToneBGM(freq, duration) {
+                if (this.isMuted || !this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                // Square wave is iconic for Gameboy
+                osc.type = 'square';
+                osc.frequency.value = freq;
+
+                // Staccato envelope
+                gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+                gain.gain.setTargetAtTime(0, this.ctx.currentTime, duration * 0.9);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
             }
         };
 

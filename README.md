@@ -3,7 +3,8 @@
 A collection of high-quality Tetris variants built with modern web technologies.
 
 ## 🕹️ Play Now
-**Click here to play:** [**Launch Neon Tetris**](https://tetris-gravity.netlify.app/) *(Or replace with your GitHub Pages link)*
+**Click here to play:** [**Launch Neon Tetris**](https://withusps-coder.github.io/neon-tetris/)
+
 
 ---
 

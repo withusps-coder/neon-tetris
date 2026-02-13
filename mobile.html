@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Neon Tetris Mobile</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #050510;
+            --panel-bg: rgba(20, 20, 35, 0.9);
+            --accent: #00f0ff;
+            --text-main: #ffffff;
+            --font-game: 'Rajdhani', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: var(--font-game);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            touch-action: none;
+            /* Prevent scroll */
+        }
+
+        #game-layout {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            max-width: 500px;
+            padding: 10px;
+            box-sizing: border-box;
+            justify-content: space-between;
+        }
+
+        /* Header: Score & Level */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            background: var(--panel-bg);
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 10px;
+        }
+
+        .stat-box {
+            text-align: center;
+        }
+
+        .label {
+            font-size: 0.8rem;
+            color: #8892b0;
+            text-transform: uppercase;
+            display: block;
+        }
+
+        .value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        /* Game Area */
+        .canvas-container {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            margin-bottom: 10px;
+        }
+
+        canvas {
+            background-color: #0a0a12;
+            border-radius: 4px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            border: 2px solid #333;
+            max-height: 100%;
+            max-width: 100%;
+        }
+
+        /* Mobile Controls */
+        .controls-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 8px;
+            height: 180px;
+            padding-bottom: 20px;
+            /* Safe area */
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            user-select: none;
+            touch-action: manipulation;
+            transition: background 0.1s;
+        }
+
+        .btn:active {
+            background: rgba(0, 240, 255, 0.3);
+            transform: scale(0.95);
+        }
+
+        .btn-rotate {
+            grid-column: 2;
+            grid-row: 1;
+            background: rgba(255, 215, 0, 0.2);
+        }
+
+        .btn-left {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        .btn-down {
+            grid-column: 2;
+            grid-row: 2;
+        }
+
+        .btn-right {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        .btn-drop {
+            grid-column: 1 /span 1;
+            grid-row: 1;
+            background: rgba(255, 0, 0, 0.2);
+            font-size: 1rem;
+            font-weight: bold;
+        }
+
+        .btn-sound {
+            grid-column: 3;
+            grid-row: 1;
+            font-size: 1rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="game-layout">
+        <div class="header">
+            <div class="stat-box">
+                <span class="label">Score</span>
+                <span id="score" class="value">0</span>
+            </div>
+            <div class="stat-box">
+                <span class="label">Level</span>
+                <span id="level" class="value">1</span>
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <!-- 10x20 grid, aspect ratio 1:2 -->
+            <canvas id="tetris" width="300" height="600"></canvas>
+        </div>
+
+        <div class="controls-area">
+            <div class="btn btn-drop" id="btnDrop">HARD<br>DROP</div>
+            <div class="btn btn-rotate" id="btnRotate">↻</div>
+            <div class="btn btn-sound" id="btnSound">🔊</div>
+
+            <div class="btn btn-left" id="btnLeft">←</div>
+            <div class="btn btn-down" id="btnDown">↓</div>
+            <div class="btn btn-right" id="btnRight">→</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('tetris');
+        const context = canvas.getContext('2d');
+
+        // --- Scale Logic for Mobile ---
+        // We want the canvas to be as big as possible but maintain 1:2 aspect ratio
+        function resizeCanvas() {
+            const container = document.querySelector('.canvas-container');
+            const availWidth = container.clientWidth;
+            const availHeight = container.clientHeight;
+
+            // Target aspect ratio 10:20 = 0.5
+            let w = availHeight * 0.5;
+            let h = availHeight;
+
+            if (w > availWidth) {
+                w = availWidth;
+                h = w * 2;
+            }
+
+            // Update display size
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+
+            // Update internal resolution (sharpness)
+            // We'll keep internal logic at 300x600 for simplicity of calculations
+            // scale context accordingly if we changed internal resolution, 
+            // but here we just stick to logical size and scale style.
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas(); // Init
+
+        // --- Configuration ---
+        const BLOCK_SIZE = 30; // 300 / 10
+        const COLS = 10;
+        const ROWS = 20;
+
+        context.scale(BLOCK_SIZE, BLOCK_SIZE);
+
+        // --- Sound Manager (Same as Desktop) ---
+        const Sound = {
+            ctx: null,
+            isMuted: false,
+            init() {
+                window.AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+            },
+            playTone(freq, type, duration, vol = 0.1) {
+                if (!this.ctx || this.isMuted) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
+            },
+            move() { this.playTone(400, 'triangle', 0.05, 0.05); },
+            rotate() { this.playTone(500, 'sine', 0.05, 0.05); },
+            drop() { this.playTone(200, 'square', 0.1, 0.05); },
+            clear() {
+                if (!this.ctx || this.isMuted) return;
+                [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+                    setTimeout(() => this.playTone(f, 'square', 0.3, 0.1), i * 60);
+                });
+            },
+            toggleMute() {
+                this.isMuted = !this.isMuted;
+                if (this.ctx && this.isMuted) this.ctx.suspend();
+                else if (this.ctx) this.ctx.resume();
+                return this.isMuted;
+            },
+            startBGM() {
+                // Simplified BGM just for interaction trigger
+                if (!this.ctx) this.init();
+            }
+        };
+
+        // --- Colors ---
+        const COLORS = [
+            null,
+            '#FF0D72', '#0DC2FF', '#0DFF72', '#F538FF', '#FF8E0D', '#FFE138', '#3877FF'
+        ];
+
+        function createPiece(type) {
+            if (type === 'I') return [[0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0]];
+            if (type === 'L') return [[0, 2, 0], [0, 2, 0], [0, 2, 2]];
+            if (type === 'J') return [[0, 3, 0], [0, 3, 0], [3, 3, 0]];
+            if (type === 'O') return [[4, 4], [4, 4]];
+            if (type === 'Z') return [[5, 5, 0], [0, 5, 5], [0, 0, 0]];
+            if (type === 'S') return [[0, 6, 6], [6, 6, 0], [0, 0, 0]];
+            if (type === 'T') return [[0, 7, 0], [7, 7, 7], [0, 0, 0]];
+        }
+
+        function createMatrix(w, h) {
+            const matrix = [];
+            while (h--) matrix.push(new Array(w).fill(0));
+            return matrix;
+        }
+
+        function drawBlock(ctx, x, y, colorIndex) {
+            const color = COLORS[colorIndex];
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, 1, 1);
+
+            ctx.lineWidth = 0.05;
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.strokeRect(x, y, 1, 1);
+        }
+
+        function draw() {
+            context.fillStyle = '#0a0a12';
+            context.fillRect(0, 0, COLS, ROWS);
+
+            // Draw Arena
+            arena.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) drawBlock(context, x, y, value);
+                });
+            });
+
+            // Draw Player
+            player.matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) drawBlock(context, x + player.pos.x, y + player.pos.y, value);
+                });
+            });
+        }
+
+        function merge(arena, player) {
+            player.matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value;
+                });
+            });
+        }
+
+        function collide(arena, player) {
+            const [m, o] = [player.matrix, player.pos];
+            for (let y = 0; y < m.length; ++y) {
+                for (let x = 0; x < m[y].length; ++x) {
+                    if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true;
+                }
+            }
+            return false;
+        }
+
+        function rotate(matrix, dir) {
+            for (let y = 0; y < matrix.length; ++y) {
+                for (let x = 0; x < y; ++x) [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+            }
+            if (dir > 0) matrix.forEach(row => row.reverse());
+            else matrix.reverse();
+        }
+
+        function playerDrop() {
+            player.pos.y++;
+            if (collide(arena, player)) {
+                player.pos.y--;
+                merge(arena, player);
+                playerReset();
+                arenaSweep();
+                updateScore();
+                Sound.drop();
+            }
+            dropCounter = 0;
+        }
+
+        function playerMove(dir) {
+            player.pos.x += dir;
+            if (collide(arena, player)) player.pos.x -= dir;
+        }
+
+        function playerRotate(dir) {
+            const pos = player.pos.x;
+            let offset = 1;
+            rotate(player.matrix, dir);
+            while (collide(arena, player)) {
+                player.pos.x += offset;
+                offset = -(offset + (offset > 0 ? 1 : -1));
+                if (offset > player.matrix[0].length) {
+                    rotate(player.matrix, -dir);
+                    player.pos.x = pos;
+                    return;
+                }
+            }
+        }
+
+        function playerReset() {
+            const pieces = 'ILJOTSZ';
+            player.matrix = createPiece(pieces[pieces.length * Math.random() | 0]);
+            player.pos.y = 0;
+            player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+            if (collide(arena, player)) {
+                arena.forEach(row => row.fill(0));
+                player.score = 0;
+                player.level = 1;
+                player.lines = 0;
+                updateScore();
+            }
+        }
+
+        function arenaSweep() {
+            let rowCount = 1;
+            let cleared = false;
+            outer: for (let y = arena.length - 1; y > 0; --y) {
+                for (let x = 0; x < arena[y].length; ++x) {
+                    if (arena[y][x] === 0) continue outer;
+                }
+                const row = arena.splice(y, 1)[0].fill(0);
+                arena.unshift(row);
+                ++y;
+                player.score += rowCount * 10;
+                player.lines++;
+                rowCount *= 2;
+                cleared = true;
+            }
+            if (cleared) Sound.clear();
+
+            const level = Math.floor(player.lines / 10) + 1;
+            player.level = level;
+            dropInterval = Math.max(100, 1000 - (level - 1) * 80);
+        }
+
+        function updateScore() {
+            document.getElementById('score').innerText = player.score;
+            document.getElementById('level').innerText = player.level;
+        }
+
+        let dropCounter = 0;
+        let dropInterval = 1000;
+        let lastTime = 0;
+
+        function update(time = 0) {
+            const deltaTime = time - lastTime;
+            lastTime = time;
+            dropCounter += deltaTime;
+            if (dropCounter > dropInterval) playerDrop();
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        const arena = createMatrix(10, 20);
+        const player = { pos: { x: 0, y: 0 }, matrix: null, score: 0, level: 1, lines: 0 };
+
+        // --- Touch Controls Integration ---
+        function initAudioOnTouch() {
+            Sound.startBGM();
+        }
+
+        function attachButton(id, action) {
+            const btn = document.getElementById(id);
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevent accidental selection/zoom
+                initAudioOnTouch();
+                action();
+                // Optional: repeat on hold could be added here
+            }, { passive: false });
+
+            // Mouse fallback
+            btn.addEventListener('mousedown', (e) => {
+                initAudioOnTouch();
+                action();
+            });
+        }
+
+        attachButton('btnLeft', () => { playerMove(-1); Sound.move(); });
+        attachButton('btnRight', () => { playerMove(1); Sound.move(); });
+        attachButton('btnRotate', () => { playerRotate(1); Sound.rotate(); });
+        attachButton('btnDown', () => { playerDrop(); });
+        attachButton('btnDrop', () => {
+            while (!collide(arena, player)) player.pos.y++;
+            player.pos.y--;
+            merge(arena, player);
+            playerReset();
+            arenaSweep();
+            updateScore();
+            Sound.drop();
+        });
+
+        document.getElementById('btnSound').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            Sound.startBGM(); // Ensure init
+            const muted = Sound.toggleMute();
+            e.target.innerText = muted ? '🔇' : '🔊';
+        }, { passive: false });
+
+        document.getElementById('btnSound').addEventListener('click', (e) => {
+            Sound.startBGM();
+            const muted = Sound.toggleMute();
+            e.target.innerText = muted ? '🔇' : '🔊';
+        });
+
+        // Start
+        playerReset();
+        updateScore();
+        update();
+
+    </script>
+</body>
+
+</html>

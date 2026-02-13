@@ -168,6 +168,9 @@
                 <div class="key-row"><span class="key">↑</span> Rotate</div>
                 <div class="key-row"><span class="key">↓</span> Soft Drop</div>
                 <div class="key-row"><span class="key" style="min-width: 40px">Space</span> Drop</div>
+                <div class="key-row" style="margin-top:15px; cursor:pointer;" id="muteBtn">
+                    <span class="key" style="width:100%">🔊 Sound: ON</span>
+                </div>
             </div>
         </div>
     </div>
@@ -493,20 +496,96 @@
         }
 
         // Flash effect state
-        let flashRects = []; // {y, life}
+        // --- Sound Manager ---
+        const Sound = {
+            ctx: null,
+            bgmOsc: [],
+            isPlaying: false,
+            isMuted: false,
+
+            init() {
+                window.AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+            },
+
+            playTone(freq, type, duration, vol = 0.1) {
+                if (!this.ctx || this.isMuted) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
+            },
+
+            move() { this.playTone(400, 'triangle', 0.05, 0.05); },
+            rotate() { this.playTone(500, 'sine', 0.05, 0.05); },
+            drop() { this.playTone(200, 'square', 0.1, 0.05); },
+            clear() {
+                if (!this.ctx || this.isMuted) return;
+                [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+                    setTimeout(() => this.playTone(f, 'square', 0.3, 0.1), i * 60);
+                });
+            },
+
+            // BGM Logic
+            toggleMute() {
+                this.isMuted = !this.isMuted;
+                if (this.isMuted) {
+                    if (this.ctx) this.ctx.suspend();
+                    return true;
+                } else {
+                    if (this.ctx) this.ctx.resume();
+                    else this.init();
+                    // Simple infinite loop of theme using setInterval for robustness
+                    if (!this.bgmInterval) this.startBGM();
+                    return false;
+                }
+            },
+
+            startBGM() {
+                if (this.bgmInterval) return;
+                // Korobeiniki theme simplified
+                // Melody: E B C D C B A A C E D C B C D E C A A
+                const melody = [
+                    659, 493, 523, 587, 523, 493, 440, 440, 523, 659, 587, 523, 493, 523, 587, 659, 523, 440, 440,
+                    // Bridge
+                    587, 698, 880, 783, 698, 659, 523, 659, 587, 523, 493, 493, 523, 587, 659, 523, 440, 440
+                ];
+                // Durations: 1=q, 0.5=8th. Most are q or 8th. Simplified to constant 8th notes for arcade feel.
+                let noteIndex = 0;
+
+                // Play loop
+                const playNext = () => {
+                    if (this.isMuted || !this.ctx) return;
+                    // Some basic rhythmic variety
+                    const freq = melody[noteIndex % melody.length];
+                    // Skip 0s if any
+                    if (freq) {
+                        this.playTone(freq, 'square', 0.1, 0.03);
+                        this.playTone(freq / 2, 'sawtooth', 0.1, 0.03); // Bass
+                    }
+                    noteIndex++;
+                };
+
+                // Tempo ~150bpm -> 8th note is ~200ms
+                this.bgmInterval = setInterval(playNext, 200);
+            }
+        };
 
         function arenaSweep() {
             let rowCount = 1;
+            let cleared = false;
             outer: for (let y = arena.length - 1; y > 0; --y) {
                 for (let x = 0; x < arena[y].length; ++x) {
                     if (arena[y][x] === 0) {
                         continue outer;
                     }
                 }
-
-                // Effect: Record flash
-                // Since we splice, visual flash is tricky. 
-                // We just clear data now, but in a polished game we'd pause.
 
                 const row = arena.splice(y, 1)[0].fill(0);
                 arena.unshift(row);
@@ -515,16 +594,13 @@
                 player.score += rowCount * 10;
                 player.lines++;
                 rowCount *= 2;
+                cleared = true;
             }
+            if (cleared) Sound.clear();
 
             // Level progression
             const level = Math.floor(player.lines / 10) + 1;
-            if (Math.floor(player.lines / 10) < Math.floor((player.lines + 1) / 10)) {
-                // level up sound or effect
-            }
-
             player.level = level;
-            // Speed curve
             dropInterval = Math.max(100, 1000 - (level - 1) * 80);
         }
 
@@ -561,21 +637,47 @@
             requestAnimationFrame(update);
         }
 
+        // Interactions
+        // Initialize Audio on first interaction
+        let audioInited = false;
+        function initAudio() {
+            if (!audioInited) {
+                Sound.init();
+                Sound.startBGM();
+                audioInited = true;
+            }
+        }
+
+        document.getElementById('muteBtn').addEventListener('click', () => {
+            initAudio(); // Ensure context is created
+            const isMuted = Sound.toggleMute();
+            document.getElementById('muteBtn').innerHTML = isMuted ?
+                '<span class="key" style="width:100%">🔇 Sound: OFF</span>' :
+                '<span class="key" style="width:100%">🔊 Sound: ON</span>';
+        });
+
         document.addEventListener('keydown', event => {
+            initAudio(); // Auto-start audio on keydown
+
             if (event.keyCode === 37) {
                 playerMove(-1);
+                Sound.move();
             } else if (event.keyCode === 39) {
                 playerMove(1);
+                Sound.move();
             } else if (event.keyCode === 40) {
                 playerDrop();
+                // Sound.move(); // Too noisy on drop
             } else if (event.keyCode === 38) {
                 playerRotate(1);
+                Sound.rotate();
             } else if (event.keyCode === 32) { // Space - Hard Drop
                 while (!collide(arena, player)) {
                     player.pos.y++;
                 }
                 player.pos.y--;
                 merge(arena, player);
+                Sound.drop();
                 playerReset();
                 arenaSweep();
                 updateScore();

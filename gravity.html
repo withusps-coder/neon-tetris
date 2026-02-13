@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaos Tetris - Physics Edition</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #ffffff;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+
+        #ui-container {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1a1a1a;
+            letter-spacing: -0.02em;
+        }
+
+        p {
+            margin: 0 0 16px 0;
+            font-size: 0.9rem;
+            color: #666;
+            max-width: 320px;
+            line-height: 1.4;
+        }
+
+        .controls-hint {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .key {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #444;
+            border: 1px solid #e0e0e0;
+        }
+
+        button {
+            pointer-events: auto;
+            padding: 12px 24px;
+            background: #1a1a1a;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button:hover {
+            background: #333;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.active {
+            background: #ff4757;
+            box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4cd137;
+            transition: background 0.3s ease;
+        }
+
+        button.active .status-dot {
+            background: #fff;
+        }
+
+        #score-display {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            font-size: 3rem;
+            font-weight: 800;
+            color: #1a1a1a;
+            pointer-events: none;
+            transition: transform 0.1s;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+</head>
+
+<body>
+
+    <div id="ui-container">
+        <h1>Gravity Tetris</h1>
+        <div class="controls-hint">
+            <span class="key">←</span>
+            <span class="key">→</span>
+            <span class="key">↑ Rotate</span>
+            <span class="key">↓ Drop</span>
+            <span class="key">Space: Anti-Gravity</span>
+        </div>
+        <p>Physics-based Tetris. Fill rows to clear them (even if they are messy!). Toggle Anti-Gravity for chaos.</p>
+        <button id="gravityBtn">
+            <div class="status-dot"></div>
+            <span id="btnText">Anti-Gravity Mode</span>
+        </button>
+    </div>
+
+    <div id="score-display">0</div>
+
+    <script>
+        // --- Setup Matter.js Aliases ---
+        const Engine = Matter.Engine,
+            Render = Matter.Render,
+            Runner = Matter.Runner,
+            Bodies = Matter.Bodies,
+            Body = Matter.Body,
+            Composite = Matter.Composite,
+            Events = Matter.Events,
+            Mouse = Matter.Mouse,
+            MouseConstraint = Matter.MouseConstraint;
+
+        // --- Configuration ---
+        const BLOCK_SIZE = 40;
+        const WALL_THICKNESS = 100;
+        const SPAWN_INTERVAL = 2500;
+
+        // --- Game State ---
+        let currentPiece = null;
+        let isAntiGravity = false;
+        let lastSpawnTime = 0;
+        let score = 0;
+
+        // --- Palette ---
+        const colors = {
+            I: '#22d3ee', O: '#facc15', T: '#c084fc', S: '#4ade80',
+            Z: '#f87171', J: '#60a5fa', L: '#fb923c'
+        };
+
+        // --- Init Engine ---
+        const engine = Engine.create();
+        const world = engine.world;
+
+        // Stability settings
+        engine.positionIterations = 8;
+        engine.velocityIterations = 8;
+
+        // Create Renderer
+        const render = Render.create({
+            element: document.body,
+            engine: engine,
+            options: {
+                width: window.innerWidth,
+                height: window.innerHeight,
+                background: '#ffffff',
+                wireframes: false,
+                showAngleIndicator: false
+            }
+        });
+
+        const scoreEl = document.getElementById('score-display');
+
+        // --- Boundaries ---
+        function createBoundaries() {
+            const width = render.options.width;
+            const height = render.options.height;
+
+            const floor = Bodies.rectangle(width / 2, height + WALL_THICKNESS / 2 - 10, width, WALL_THICKNESS, {
+                isStatic: true, label: 'floor',
+                render: { fillStyle: '#f0f0f0' }, friction: 1.0
+            });
+            const leftWall = Bodies.rectangle(0 - WALL_THICKNESS / 2, height / 2, WALL_THICKNESS, height * 5, {
+                isStatic: true, label: 'wall', friction: 0
+            });
+            const rightWall = Bodies.rectangle(width + WALL_THICKNESS / 2, height / 2, WALL_THICKNESS, height * 5, {
+                isStatic: true, label: 'wall', friction: 0
+            });
+
+            Composite.add(world, [floor, leftWall, rightWall]);
+        }
+        createBoundaries();
+
+        // --- Shapes ---
+        const shapes = {
+            I: { color: colors.I, blocks: [{ x: -1.5, y: 0 }, { x: -0.5, y: 0 }, { x: 0.5, y: 0 }, { x: 1.5, y: 0 }] },
+            O: { color: colors.O, blocks: [{ x: -0.5, y: -0.5 }, { x: 0.5, y: -0.5 }, { x: -0.5, y: 0.5 }, { x: 0.5, y: 0.5 }] },
+            T: { color: colors.T, blocks: [{ x: -1, y: 0 }, { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: -1 }] },
+            S: { color: colors.S, blocks: [{ x: -1, y: 0 }, { x: 0, y: 0 }, { x: 0, y: -1 }, { x: 1, y: -1 }] },
+            Z: { color: colors.Z, blocks: [{ x: -1, y: -1 }, { x: 0, y: -1 }, { x: 0, y: 0 }, { x: 1, y: 0 }] },
+            J: { color: colors.J, blocks: [{ x: -1, y: -1 }, { x: -1, y: 0 }, { x: 0, y: 0 }, { x: 1, y: 0 }] },
+            L: { color: colors.L, blocks: [{ x: 1, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 0 }, { x: -1, y: 0 }] }
+        };
+        const shapeKeys = Object.keys(shapes);
+
+        // --- Spawner ---
+        function spawnPiece() {
+            const width = render.options.width;
+            const spawnX = width / 2 + (Math.random() * 40 - 20);
+            const spawnY = -150;
+
+            const type = shapeKeys[Math.floor(Math.random() * shapeKeys.length)];
+            const def = shapes[type];
+
+            const parts = def.blocks.map(block => {
+                return Bodies.rectangle(
+                    spawnX + block.x * BLOCK_SIZE,
+                    spawnY + block.y * BLOCK_SIZE,
+                    BLOCK_SIZE, BLOCK_SIZE,
+                    {
+                        render: {
+                            fillStyle: def.color, strokeStyle: '#000000', lineWidth: 2
+                        },
+                        label: 'blockPart' // Tag specifically for line checking
+                    }
+                );
+            });
+
+            const piece = Body.create({
+                parts: parts, label: 'piece',
+                friction: 0.5, restitution: 0.1, density: 0.002
+            });
+
+            Composite.add(world, piece);
+            currentPiece = piece;
+        }
+
+        // --- Interaction ---
+        const mouse = Mouse.create(render.canvas);
+        const mouseConstraint = MouseConstraint.create(engine, {
+            mouse: mouse, constraint: { stiffness: 0.1, render: { visible: false } }
+        });
+        Composite.add(world, mouseConstraint);
+        render.mouse = mouse;
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') toggleGravity();
+
+            if (currentPiece) {
+                const force = 0.06 * currentPiece.mass;
+                if (e.key === 'ArrowLeft') Body.applyForce(currentPiece, currentPiece.position, { x: -force, y: 0 });
+                if (e.key === 'ArrowRight') Body.applyForce(currentPiece, currentPiece.position, { x: force, y: 0 });
+                if (e.key === 'ArrowUp') Body.rotate(currentPiece, Math.PI / 2);
+                if (e.key === 'ArrowDown') Body.applyForce(currentPiece, currentPiece.position, { x: 0, y: force * 3 });
+            }
+        });
+
+        // --- Line Clearing ---
+        // We check for "Full Rows" by slicing the world horizontally
+        function checkLines() {
+            if (isAntiGravity) return; // Physics is too chaotic to clear lines in anti-gravity
+
+            const bodies = Composite.allBodies(world);
+
+            // 1. Collect all individual block parts from active pieces
+            let allParts = [];
+            bodies.forEach(b => {
+                if (b.label === 'piece') {
+                    // Iterate parts. 'parts' includes the parent body itself usually at index 0, so we filter.
+                    b.parts.forEach(p => {
+                        if (p.label === 'blockPart') allParts.push({ part: p, parent: b });
+                    });
+                }
+            });
+
+            if (allParts.length === 0) return;
+
+            // 2. Define Scanning Grid
+            // We scan from bottom up.
+            const screenW = render.options.width;
+            const screenH = render.options.height;
+            const bottomY = screenH - WALL_THICKNESS / 2;
+
+            // How "strict" is a line? 
+            // We'll check horizontal strips of height BLOCK_SIZE.
+            // If > 90% of the strip width is covered by blocks, it's a line.
+
+            let partsToRemove = new Set();
+            let clearedCount = 0;
+
+            for (let y = bottomY - BLOCK_SIZE / 2; y > 0; y -= BLOCK_SIZE) {
+                // Find parts in this strip (y +/- BLOCK_SIZE/2)
+                const rowParts = allParts.filter(item => Math.abs(item.part.position.y - y) < BLOCK_SIZE * 0.6); // 60% tolerance
+
+                if (rowParts.length == 0) continue;
+
+                // Calculate coverage
+                // We create a simple boolean array representing standard buckets across width
+                const bucketSize = 20; // Resolution
+                const buckets = new Array(Math.ceil(screenW / bucketSize)).fill(0);
+
+                rowParts.forEach(item => {
+                    const p = item.part;
+                    // Approximate coverage of this block
+                    const startX = Math.floor((p.position.x - BLOCK_SIZE / 2) / bucketSize);
+                    const endX = Math.floor((p.position.x + BLOCK_SIZE / 2) / bucketSize);
+
+                    for (let i = startX; i <= endX; i++) {
+                        if (i >= 0 && i < buckets.length) buckets[i] = 1;
+                    }
+                });
+
+                const coveredBuckets = buckets.reduce((a, b) => a + b, 0);
+                const coverage = coveredBuckets / buckets.length;
+
+                // THRESHOLD: 85% width filled
+                if (coverage > 0.85) {
+                    clearedCount++;
+                    rowParts.forEach(item => partsToRemove.add(item.part));
+                }
+            }
+
+            if (clearedCount > 0) {
+                // 3. Remove parts
+                // We must group parts by parent to safely remove them using Body.setParts
+                const parentMap = new Map(); // Parent Body -> Set of Parts to KEEP
+
+                // Initialize map with all current parts
+                bodies.forEach(b => {
+                    if (b.label === 'piece') {
+                        // Filter out the parent self-reference
+                        const realParts = b.parts.filter(p => p !== b && p.label === 'blockPart');
+                        parentMap.set(b, new Set(realParts));
+                    }
+                });
+
+                // Remove the targeted parts from the sets
+                partsToRemove.forEach(part => {
+                    // Find which parent owns this part
+                    // (We could have stored this in step 1, but looking up is fine)
+                    for (const [parent, partsSet] of parentMap.entries()) {
+                        if (partsSet.has(part)) {
+                            partsSet.delete(part);
+                            // Visual FX
+                            createExplosion(part.position.x, part.position.y, part.render.fillStyle);
+                            break;
+                        }
+                    }
+                });
+
+                // Apply updates to Matter.js bodies
+                for (const [parent, partsSet] of parentMap.entries()) {
+                    if (partsSet.size === 0) {
+                        Composite.remove(world, parent);
+                    } else {
+                        // Reconstruct body with remaining parts
+                        Body.setParts(parent, Array.from(partsSet));
+                    }
+                }
+
+                // Update Score
+                score += clearedCount * 100;
+                score += (clearedCount > 1 ? (clearedCount * 50) : 0); // Bonus
+                scoreEl.innerText = score;
+
+                // Animation
+                scoreEl.style.transform = "scale(1.5)";
+                setTimeout(() => scoreEl.style.transform = "scale(1)", 150);
+            }
+        }
+
+        function createExplosion(x, y, color) {
+            const particles = [];
+            for (let i = 0; i < 5; i++) {
+                const p = Bodies.circle(x, y, 4, {
+                    render: { fillStyle: color },
+                    frictionAir: 0.05,
+                    restitution: 0.5
+                });
+                Body.setVelocity(p, {
+                    x: (Math.random() - 0.5) * 15,
+                    y: (Math.random() - 0.5) * 15
+                });
+                particles.push(p);
+            }
+            Composite.add(world, particles);
+            // Auto cleanup
+            setTimeout(() => {
+                Composite.remove(world, particles);
+            }, 800);
+        }
+
+        // --- Anti-Gravity ---
+        function toggleGravity() {
+            isAntiGravity = !isAntiGravity;
+            const btn = document.getElementById('gravityBtn');
+            const dot = btn.querySelector('.status-dot');
+
+            if (isAntiGravity) {
+                engine.gravity.y = -0.5;
+                btn.classList.add('active');
+                dot.style.background = '#fff';
+            } else {
+                engine.gravity.y = 1;
+                btn.classList.remove('active');
+                dot.style.background = '#4cd137';
+            }
+            Composite.allBodies(world).forEach(b => Body.setSleeping(b, false));
+        }
+        document.getElementById('gravityBtn').addEventListener('click', toggleGravity);
+
+        // --- Game Loop ---
+        const runner = Runner.create();
+        Runner.run(runner, engine);
+        Render.run(render);
+
+        let lastCheck = 0;
+        Events.on(runner, 'beforeUpdate', function (event) {
+            const time = engine.timing.timestamp;
+
+            // Spawning
+            if (!isAntiGravity && time - lastSpawnTime > SPAWN_INTERVAL) {
+                spawnPiece();
+                lastSpawnTime = time;
+            }
+
+            // Line Logic Check (every 200ms)
+            if (time - lastCheck > 200) {
+                checkLines();
+                lastCheck = time;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            render.canvas.width = window.innerWidth;
+            render.canvas.height = window.innerHeight;
+            // Ideally reload for boundaries
+        });
+
+        spawnPiece();
+
+    </script>
+</body>
+
+</html>

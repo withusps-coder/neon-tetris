@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Tetris</title>
+    <!-- Import a gaming font -->
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #050510;
+            --panel-bg: rgba(20, 20, 35, 0.8);
+            --accent: #00f0ff;
+            --text-main: #ffffff;
+            --font-game: 'Rajdhani', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image:
+                radial-gradient(circle at 50% 50%, #1a1a2e 0%, #050510 100%);
+            color: var(--text-main);
+            font-family: var(--font-game);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #game-layout {
+            display: flex;
+            gap: 40px;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            box-shadow:
+                0 0 50px rgba(0, 0, 0, 0.5),
+                inset 0 0 100px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            align-items: flex-start;
+        }
+
+        .canvas-container {
+            position: relative;
+            padding: 4px;
+            background: #000;
+            border-radius: 4px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            border: 2px solid #333;
+        }
+
+        canvas {
+            display: block;
+            background-color: #0a0a12;
+        }
+
+        /* Sidebar Styling */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            width: 180px;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .label {
+            display: block;
+            font-size: 1.1rem;
+            color: #8892b0;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .value {
+            display: block;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+        }
+
+        #next-canvas {
+            width: 120px;
+            height: 100px;
+            /* Logical size handled in JS */
+            margin: 0 auto;
+            display: block;
+        }
+
+        /* Controls info */
+        .controls {
+            margin-top: auto;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            color: #64ffda;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+
+        .key-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            gap: 10px;
+        }
+
+        .key {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #fff;
+            min-width: 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="game-layout">
+        <!-- Main Game Area -->
+        <div class="canvas-container">
+            <!-- 
+            Block Size: 35px
+            Cols: 10 -> 350px
+            Rows: 20 -> 700px
+        -->
+            <canvas id="tetris" width="350" height="700"></canvas>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="panel">
+                <span class="label">Score</span>
+                <span id="score" class="value">0</span>
+            </div>
+
+            <div class="panel">
+                <span class="label">Level</span>
+                <span id="level" class="value">1</span>
+            </div>
+
+            <div class="panel">
+                <span class="label">Next</span>
+                <!-- Preview Canvas -->
+                <canvas id="next-canvas" width="140" height="100"></canvas>
+            </div>
+
+            <div class="panel controls">
+                <div class="key-row"><span class="key">←</span><span class="key">→</span> Move</div>
+                <div class="key-row"><span class="key">↑</span> Rotate</div>
+                <div class="key-row"><span class="key">↓</span> Soft Drop</div>
+                <div class="key-row"><span class="key" style="min-width: 40px">Space</span> Drop</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('tetris');
+        const context = canvas.getContext('2d');
+        const nextCanvas = document.getElementById('next-canvas');
+        const nextContext = nextCanvas.getContext('2d');
+
+        // --- Configuration ---
+        const BLOCK_SIZE = 35; // Increased size significantly
+        const COLS = 10;
+        const ROWS = 20;
+
+        // Scale contexts
+        context.scale(BLOCK_SIZE, BLOCK_SIZE);
+
+        // For next preview, we use a smaller scale or calculate centering
+        const PREVIEW_SCALE = 20;
+        nextContext.scale(PREVIEW_SCALE, PREVIEW_SCALE);
+
+        // --- Colors & Styles ---
+        // Using HSL for easier gradient manipulation
+        const COLORS = [
+            null,
+            { base: '#FF0D72', glow: 'rgba(255, 13, 114, 0.6)' }, // T
+            { base: '#0DC2FF', glow: 'rgba(13, 194, 255, 0.6)' }, // O
+            { base: '#0DFF72', glow: 'rgba(13, 255, 114, 0.6)' }, // L
+            { base: '#F538FF', glow: 'rgba(245, 56, 255, 0.6)' }, // J
+            { base: '#FF8E0D', glow: 'rgba(255, 142, 13, 0.6)' }, // I
+            { base: '#FFE138', glow: 'rgba(255, 225, 56, 0.6)' }, // S
+            { base: '#3877FF', glow: 'rgba(56, 119, 255, 0.6)' }, // Z
+        ];
+
+        // Standard mapping
+        const SHAPE_COLORS = [
+            null,
+            COLORS[1], // I (Cyan-ish in standard, mapped differently here just for visuals)
+            COLORS[5],
+            COLORS[7],
+            COLORS[2],
+            COLORS[3],
+            COLORS[6],
+            COLORS[4],
+        ];
+
+        const PIECES = 'ILJOTSZ';
+
+        // --- Matrix Helpers ---
+        function createPiece(type) {
+            if (type === 'I') {
+                return [
+                    [0, 1, 0, 0],
+                    [0, 1, 0, 0],
+                    [0, 1, 0, 0],
+                    [0, 1, 0, 0],
+                ];
+            } else if (type === 'L') {
+                return [
+                    [0, 2, 0],
+                    [0, 2, 0],
+                    [0, 2, 2],
+                ];
+            } else if (type === 'J') {
+                return [
+                    [0, 3, 0],
+                    [0, 3, 0],
+                    [3, 3, 0],
+                ];
+            } else if (type === 'O') {
+                return [
+                    [4, 4],
+                    [4, 4],
+                ];
+            } else if (type === 'Z') {
+                return [
+                    [5, 5, 0],
+                    [0, 5, 5],
+                    [0, 0, 0],
+                ];
+            } else if (type === 'S') {
+                return [
+                    [0, 6, 6],
+                    [6, 6, 0],
+                    [0, 0, 0],
+                ];
+            } else if (type === 'T') {
+                return [
+                    [0, 7, 0],
+                    [7, 7, 7],
+                    [0, 0, 0],
+                ];
+            }
+        }
+
+        function createMatrix(w, h) {
+            const matrix = [];
+            while (h--) {
+                matrix.push(new Array(w).fill(0));
+            }
+            return matrix;
+        }
+
+        // --- Drawing Functions ---
+
+        function drawBlock(ctx, x, y, colorIndex, alpha = 1.0) {
+            if (colorIndex === 0) return;
+
+            const color = COLORS[colorIndex];
+
+            // Base fill
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = color.base;
+
+            // bevel effect
+            ctx.fillRect(x + 0.1, y + 0.1, 0.8, 0.8);
+
+            // Inner highlight
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.fillRect(x + 0.1, y + 0.1, 0.8, 0.1); // top highlight
+            ctx.fillRect(x + 0.1, y + 0.1, 0.1, 0.8); // left highlight
+
+            // Inner shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(x + 0.1, y + 0.8, 0.8, 0.1); // bottom shadow
+            ctx.fillRect(x + 0.8, y + 0.1, 0.1, 0.8); // right shadow
+
+            // Glow (Simulated with stroke or shadow, but canvas shadowBlur is expensive)
+            // Let's use a subtle border for sharpness
+            ctx.lineWidth = 0.05;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.strokeRect(x, y, 1, 1);
+
+            ctx.globalAlpha = 1.0;
+        }
+
+        function drawGrid() {
+            context.lineWidth = 0.02;
+            context.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            for (let x = 0; x <= COLS; x++) {
+                context.beginPath();
+                context.moveTo(x, 0);
+                context.lineTo(x, ROWS);
+                context.stroke();
+            }
+            for (let y = 0; y <= ROWS; y++) {
+                context.beginPath();
+                context.moveTo(0, y);
+                context.lineTo(COLS, y);
+                context.stroke();
+            }
+        }
+
+        function draw() {
+            // Clear main canvas Area
+            context.fillStyle = '#0a0a12'; // Dark BG
+            context.fillRect(0, 0, COLS, ROWS);
+
+            drawGrid();
+
+            // Draw Board
+            arena.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        drawBlock(context, x, y, value);
+                    }
+                });
+            });
+
+            // Draw Ghost
+            const ghostY = getGhostY();
+            player.matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        // Draw ghost as outline
+                        context.globalAlpha = 0.2;
+                        context.fillStyle = COLORS[value].base;
+                        context.fillRect(x + player.pos.x, y + ghostY, 1, 1);
+                        context.globalAlpha = 1.0;
+
+                        context.lineWidth = 0.05;
+                        context.strokeStyle = COLORS[value].base;
+                        context.strokeRect(x + player.pos.x, y + ghostY, 1, 1);
+                    }
+                });
+            });
+
+            // Draw Active Piece
+            player.matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        drawBlock(context, x + player.pos.x, y + player.pos.y, value);
+                    }
+                });
+            });
+        }
+
+        function drawNext() {
+            // Clear preview
+            nextContext.clearRect(0, 0, nextCanvas.width / PREVIEW_SCALE, nextCanvas.height / PREVIEW_SCALE);
+
+            // Little grid background for preview
+            nextContext.fillStyle = 'rgba(255,255,255,0.05)';
+            nextContext.fillRect(0, 0, 10, 10);
+
+            if (player.next) {
+                const offsetX = (7 - player.next[0].length) / 2; // rough center
+                const offsetY = (5 - player.next.length) / 2;
+
+                player.next.forEach((row, y) => {
+                    row.forEach((value, x) => {
+                        if (value !== 0) {
+                            // Draw simpler blocks for preview
+                            nextContext.fillStyle = COLORS[value].base;
+                            nextContext.fillRect(x + offsetX, y + offsetY, 0.9, 0.9);
+                            nextContext.strokeStyle = 'rgba(255,255,255,0.5)';
+                            nextContext.lineWidth = 0.1;
+                            nextContext.strokeRect(x + offsetX, y + offsetY, 0.9, 0.9);
+                        }
+                    });
+                });
+            }
+        }
+
+        // --- Logic ---
+
+        function getGhostY() {
+            const ghostPos = { x: player.pos.x, y: player.pos.y };
+            while (!collide(arena, { pos: ghostPos, matrix: player.matrix })) {
+                ghostPos.y++;
+            }
+            return ghostPos.y - 1;
+        }
+
+        function merge(arena, player) {
+            player.matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        arena[y + player.pos.y][x + player.pos.x] = value;
+                    }
+                });
+            });
+        }
+
+        function collide(arena, player) {
+            const [m, o] = [player.matrix, player.pos];
+            for (let y = 0; y < m.length; ++y) {
+                for (let x = 0; x < m[y].length; ++x) {
+                    if (m[y][x] !== 0 &&
+                        (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function rotate(matrix, dir) {
+            for (let y = 0; y < matrix.length; ++y) {
+                for (let x = 0; x < y; ++x) {
+                    [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+                }
+            }
+            if (dir > 0) matrix.forEach(row => row.reverse());
+            else matrix.reverse();
+        }
+
+        function playerDrop() {
+            player.pos.y++;
+            if (collide(arena, player)) {
+                player.pos.y--;
+                merge(arena, player);
+                playerReset();
+                arenaSweep();
+                updateScore();
+            }
+            dropCounter = 0;
+        }
+
+        function playerMove(dir) {
+            player.pos.x += dir;
+            if (collide(arena, player)) {
+                player.pos.x -= dir;
+            }
+        }
+
+        function playerRotate(dir) {
+            const pos = player.pos.x;
+            let offset = 1;
+            rotate(player.matrix, dir);
+            while (collide(arena, player)) {
+                player.pos.x += offset;
+                offset = -(offset + (offset > 0 ? 1 : -1));
+                if (offset > player.matrix[0].length) {
+                    rotate(player.matrix, -dir);
+                    player.pos.x = pos;
+                    return;
+                }
+            }
+        }
+
+        function playerReset() {
+            if (!player.next) {
+                player.next = createPiece(PIECES[PIECES.length * Math.random() | 0]);
+            }
+            player.matrix = player.next;
+            player.next = createPiece(PIECES[PIECES.length * Math.random() | 0]);
+            drawNext();
+
+            player.pos.y = 0;
+            player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+
+            if (collide(arena, player)) {
+                // Game Over
+                arena.forEach(row => row.fill(0));
+                player.score = 0;
+                player.level = 1;
+                player.lines = 0;
+                dropInterval = 1000;
+                updateScore();
+            }
+        }
+
+        // Flash effect state
+        let flashRects = []; // {y, life}
+
+        function arenaSweep() {
+            let rowCount = 1;
+            outer: for (let y = arena.length - 1; y > 0; --y) {
+                for (let x = 0; x < arena[y].length; ++x) {
+                    if (arena[y][x] === 0) {
+                        continue outer;
+                    }
+                }
+
+                // Effect: Record flash
+                // Since we splice, visual flash is tricky. 
+                // We just clear data now, but in a polished game we'd pause.
+
+                const row = arena.splice(y, 1)[0].fill(0);
+                arena.unshift(row);
+                ++y;
+
+                player.score += rowCount * 10;
+                player.lines++;
+                rowCount *= 2;
+            }
+
+            // Level progression
+            const level = Math.floor(player.lines / 10) + 1;
+            if (Math.floor(player.lines / 10) < Math.floor((player.lines + 1) / 10)) {
+                // level up sound or effect
+            }
+
+            player.level = level;
+            // Speed curve
+            dropInterval = Math.max(100, 1000 - (level - 1) * 80);
+        }
+
+        function updateScore() {
+            document.getElementById('score').innerText = player.score;
+            document.getElementById('level').innerText = player.level;
+        }
+
+        // Game Loop
+        const arena = createMatrix(10, 20);
+        const player = {
+            pos: { x: 0, y: 0 },
+            matrix: null,
+            score: 0,
+            level: 1,
+            lines: 0,
+            next: null,
+        };
+
+        let dropCounter = 0;
+        let dropInterval = 1000;
+        let lastTime = 0;
+
+        function update(time = 0) {
+            const deltaTime = time - lastTime;
+            lastTime = time;
+
+            dropCounter += deltaTime;
+            if (dropCounter > dropInterval) {
+                playerDrop();
+            }
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        document.addEventListener('keydown', event => {
+            if (event.keyCode === 37) {
+                playerMove(-1);
+            } else if (event.keyCode === 39) {
+                playerMove(1);
+            } else if (event.keyCode === 40) {
+                playerDrop();
+            } else if (event.keyCode === 38) {
+                playerRotate(1);
+            } else if (event.keyCode === 32) { // Space - Hard Drop
+                while (!collide(arena, player)) {
+                    player.pos.y++;
+                }
+                player.pos.y--;
+                merge(arena, player);
+                playerReset();
+                arenaSweep();
+                updateScore();
+                dropCounter = 0;
+            }
+        });
+
+        // Start
+        playerReset();
+        updateScore();
+        update();
+
+    </script>
+</body>
+
+</html>
